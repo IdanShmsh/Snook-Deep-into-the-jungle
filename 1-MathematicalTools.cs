@@ -390,7 +390,8 @@ To make the output fit into the range, we use O = x(t)*(f - i) + i, where O is t
 in time, f is the final value, i is the initial value. Now I can transition a value from say, 2 to 65 in 6.341 seconds, in many different ways.
 The Transition manager has a selection of different functions I can use in the code on various occasions. For example, a smooth motion is described 
 by the (sign(t/2pi) + 1) / 2 making a value move in a smooth way over time, accelerating at the beginning and decelerating at the end.
-Every time the TransitionManager is requested to begin a transition it creates one and places it inside an array of transitions. Each frame it updates its state by 'deltaTime'. When the time the transition is active reaches the time of the transition, it's removed from the array of transitions.
+Every time the TransitionManager is requested to begin a transition it creates one and places it inside an array of transitions. Each frame it updates 
+its state by 'deltaTime'. When the time the transition is active reaches the time of the transition, it's removed from the array of transitions.
 
 using System;
 using System.Collections.Generic;
