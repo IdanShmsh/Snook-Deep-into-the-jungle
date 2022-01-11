@@ -1,0 +1,1132 @@
+As I now succedded to make a snake that can be moved and played with, I need to create a world, for it to live in.
+Now, if this world, will be a certain size, and constant, it wouldn't be so interesting isn't it? So created a 
+mechanism to create an interesting, never ending, and most important playable world.
+
+First, I need to configure the playable part. To make the world playable, I need to create platforms for the snake
+to hop around on. But I can't just make them randomaly placed around the world, I need to make them placed in a
+line that traces a path forward, they have to be placed in spaced out in a way that the snake can reach them.
+Also, as the world should be endless only in the z direction I included a certain width to this world, so we also
+need the platforms to not exceed this width.
+SO, I start with an initial platfrom at (0, 0) and from there I create platforms in a recursice manner, I use the
+platform I created to create the one next, and that platform to create the one after it and so on.
+For each platform I calculate a random angle that it will be created relative to the one before it (angle to the z
+axis) and I calculate a random distance between a minimum distance and a maximum distance, which will be the distance
+of the created platform from the previous platform. Both of these randoms are calculated using the SmartRandomizer
+class I made, and for both I created functions that describe each probability. 
+The probability for the distance is very straight forward, probability is highest in the middle and lowest at the
+minimunm and maximum distances.
+But the probability function for the angle is much more complicated, which makes it more interesting.
+Since I want to keep the platforms inside the world width, I made this function dependent on where the previous 
+platform is along the width of the world. Lets call this parameter a where it's -1 when the platform is at the
+left edge of the world and 1 when the platform is at the right edge (0 in the middle). Now, this function's structure
+when a is 0, is-highest point in the middel (zero degrees) and the lowest points (equal 0) are in +-45 degrees
+that way in the middle of the world highest probability for the platforms to appear straigh forward up until 45 deg.
+And as the platforms location tends to an edge the angle probablility becomes higher in the dierction of the middle
+until at the very edge the probability of the angle to be 0 is 0 and the highest probability is in the direction of
+the middle. Doing it this way we make sure the platforms stay insdie the width of the world but still keep them random
+and interesting. (I really encourage you to have a look at the Docs folder of this it has visualisations and its so
+interesting)
+The mathematical function for the angle looks like this:
+private static float baseAngleProbability(float x, float a)
+{
+    if (a > 0)
+    {
+        return (float)(((-1 * Mathf.Abs(x - (22.5f * a))) / ((1 - (0.5f * a)) * 90)) + 0.5);
+    }
+    else
+    {
+        return (float)(((-1 * Mathf.Abs(x - (22.5f * a))) / ((1 + (0.5f * a)) * 90)) + 0.5);
+    }
+}
+
+Now, I have the platforms created, I need to create the environment around. Since I wanted to include the option of 
+selecting world themes, the environment's objects are inside folders, each for every theme, and each folder contains the
+same objects, but what differs the themes from each other is the looks of them. When I create the world I instantiate
+thses objects out of the selected world theme's folder.
+To make the world interesting looking, I divide it into bioms, these are sections of the world that look different and
+have different properties. In the default woods are the biting plants. In the tree top biom are the falling platforms and
+the spiders, etc... At each moment there are 4 biomes created in the world. When the snake gets to the end of a biome, 
+the last one is the destroyed and a new one is created with a random type and a random length , that's how the world is 
+basically endless and still - even more random.
+So now I have to create the decorations. When I create the platforms, I also create an invisible object between them
+called 'ObsticleClearer' and I program certain decorations to destroy themselves if they colide with it, that way I
+keep the path between the platforms unobscured where the decorations are around it.
+
+There are many many more small pieces of logic that are really long to get into in this but this was the main idea.
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class WorldGenerator : MonoBehaviour
+{
+    //file names
+
+    public const string GAME_OBJECTS_FOLDER_DIRECTORY = "Prefabs/Game_Objects";
+
+    public const string COIN_OBJECT_NAME = "Coin";
+    public const string CRYSTAL_OBJECT_NAME = "Crystal";
+    public const string COINMAGNET_OBJECT_NAME = "CoinMaster";
+    public const string BIGSNAKE_OBJECT_NAME = "BigSnake";
+    public const string ROCKET_OBJECT_NAME = "Rocket";
+
+    public const string WORLD_GENERATOR_FOLDERS_DIRECTORY = "3D_Objects/World_Generation";
+    public const string WORLD_KIT_FOLDERS_DIRECTORY = WORLD_GENERATOR_FOLDERS_DIRECTORY + "/World_Kits";
+
+    public const string OBSTICAL_CLEAR_OBJECT_NAME = "Obsticle_Clearer";
+
+    public const string PROGRESS_SIGN_NAME = "Progress_Sign";
+
+    public const string WOODS_DEFAULT_SCENERY_NAME = "Woods_Default_Scenery";
+    public const string WOODS_DEFAULT_TRANSSCENERY_ROCKY_NAME = "Woods_Default_TransScenery_Rocky";
+    public const string WOODS_DEFAULT_TRANSSCENERY_CANAPY_NAME = "Woods_Default_TransScenery_Canapy";
+    public const string WOODS_DEFAULT_TRANSSCENERY_RIVERD_NAME = "Woods_Default_TransScenery_RiverD";
+    public const string WOODS_DEFAULT_PLATFORM_NAME = "Woods_Default_Platform";
+    public const string WOODS_DEFAULT_TREE_NAME = "Woods_Default_Tree";
+    public const string WOODS_DEFAULT_ROCK_NAME = "Woods_Default_Rock";
+    public const string WOODS_DEFAULT_DECORATION_NAME = "Woods_Default_Decoration";
+    public const string WOODS_DEFAULT_ENEMYPLANT_NAME = "Woods_Default_Enemyplant";
+    public const string WOODS_DEFAULT_DIRECTED_FIRE_NAME = "Woods_Default_Directed_Fire";
+
+    public const string WOODS_ROCKY_SCENERY_NAME = "Woods_Rocky_Scenery";
+    public const string WOODS_ROCKY_TRANSSCENERY_DEFAULT_NAME = "Woods_Rocky_TransScenery_Default";
+    public const string WOODS_ROCKY_TRANSSCENERY_CANAPY_NAME = "Woods_Rocky_TransScenery_Canapy";
+    public const string WOODS_ROCKY_TRANSSCENERY_RIVERD_NAME = "Woods_Rocky_TransScenery_RiverD";
+    public const string WOODS_ROCKY_PLATFORM_NAME = "Woods_Rocky_Platform";
+    public const string WOODS_ROCKY_TREE_NAME = "Woods_Rocky_Tree";
+    public const string WOODS_ROCKY_ROCK_NAME = "Woods_Rocky_Rock";
+    public const string WOODS_ROCKY_ROCK_PATH_NAME = "Woods_Rocky_Rock_Path";
+
+    public const string WOODS_CANAPY_SCENERY_NAME = "Woods_Canapy_Scenery";
+    public const string WOODS_CANAPY_TRANSSCENERY_DEFAULT_NAME = "Woods_Canapy_TransScenery_Default";
+    public const string WOODS_CANAPY_TRANSSCENERY_ROCKY_NAME = "Woods_Canapy_TransScenery_Rocky";
+    public const string WOODS_CANAPY_TRANSSCENERY_RIVERD_NAME = "Woods_Canapy_TransScenery_RiverD";
+    public const string WOODS_CANAPY_PLATFORM_NAME = "Woods_Canapy_Platform";
+    public const string WOODS_CANAPY_TREE_NAME = "Woods_Canapy_Tree";
+    public const string WOODS_CANAPY_SPIDER_NAME = "Woods_Canapy_Spider";
+
+    public const string RIVER_DEFAULT_SCENERY_NAME = "River_Default_Scenery";
+    public const string RIVER_DEFAULT_TRANSSCENERY_DEFAULT_NAME = "River_Default_TransScenery_Default";
+    public const string RIVER_DEFAULT_TRANSSCENERY_ROCKY_NAME = "River_Default_TransScenery_Rocky";
+    public const string RIVER_DEFAULT_TRANSSCENERY_CANAPY_NAME = "River_Default_TransScenery_Canapy";
+    public const string RIVER_DEFAULT_PLATFORM_NAME = "River_Default_Platform";
+    public const string RIVER_DEFAULT_CROC_PLATFORM_NAME = "River_Default_Croc_Plaform";
+    public const string RIVER_DEFAULT_ALIGATOR_NAME = "River_Default_Aligator";
+    public const string RIVER_DEFAULT_LILYPAD_NAME = "River_Default_Lilypad";
+    public const string RIVER_DEFAULT_VEGITATION_NAME = "River_Default_Vegitation";
+
+    //---------------------------------------------------------------------------------------------
+
+    //world game objects
+    public static GameObject OBSTICAL_CLEAR_OBJECT_GAMEOBJECT;
+    public static GameObject PROGRESS_SIGN_GAMEOBJECT;
+    public static GameObject COIN_OBJECT_GAMEOBJECT;
+    public static GameObject CRYSTAL_OBJECT_GAMEOBJECT;
+    public static GameObject COINMAGNET_OBJECT_GAMEOBJECT;
+    public static GameObject BIGSNAKE_OBJECT_GAMEOBJECT;
+    public static GameObject ROCKET_OBJECT_GAMEOBJECT;
+
+    public static GameObject WOODS_DEFAULT_SCENERY_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_TRANSSCENERY_RIVERD_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_PLATFORM_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_TREE_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_ROCK_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_DECORATION_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_ENEMYPLANT_GAMEOBJECT;
+    public static GameObject WOODS_DEFAULT_DIRECTED_FIRE_GAMEOBJECT;
+
+    public static GameObject WOODS_ROCKY_SCENERY_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_TRANSSCENERY_DEFAULT_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_TRANSSCENERY_CANAPY_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_TRANSSCENERY_RIVERD_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_PLATFORM_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_TREE_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_ROCK_GAMEOBJECT;
+    public static GameObject WOODS_ROCKY_ROCK_PATH_GAMEOBJECT;
+
+    public static GameObject WOODS_CANAPY_SCENERY_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_TRANSSCENERY_DEFAULT_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_TRANSSCENERY_ROCKY_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_TRANSSCENERY_RIVERD_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_PLATFORM_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_TREE_GAMEOBJECT;
+    public static GameObject WOODS_CANAPY_SPIDER_GAMEOBJECT;
+
+    public static GameObject RIVER_DEFAULT_SCENERY_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_TRANSSCENERY_DEFAULT_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_PLATFORM_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_CROC_PLATFORM_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_ALIGATOR_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_LILYPAD_GAMEOBJECT;
+    public static GameObject RIVER_DEFAULT_VEGITATION_GAMEOBJECT;
+
+    //=============================================================================================
+
+    [SerializeField] BaseTile First_Base;
+    public static BaseTile FirstBase;
+
+    public const float SCENE_WITDH = 100;
+    public const float WORLD_WIDTH = 30;
+
+    [SerializeField] string worldThemeName = "";
+
+    [SerializeField] float Biome_Length_Mult;
+    public static float BiomeLengthMult = 20;
+
+    [SerializeField] float Tree_Density;
+    public static float DecorationDensity = 3;
+
+    [SerializeField] float Tree_Scatter;
+    public static float DecorationScatter = 0.2f;
+
+    [SerializeField] float Min_Base_Distance;
+    public static float MinBaseDistance = 10;
+
+    [SerializeField] GameObject Biome_Container;
+    public static GameObject BiomeContainer;
+
+    [SerializeField] int biomeLoadNumber;
+    WorldBiome[] loadedBiomes;
+
+    public static int nextSignPosition;
+    static int[] signPositions = new int[] { 50, 100, -1 }; //-1 means that the signs will be placed in intervals of 250m
+    static int currentSignPositionIndex = 0;
+    //=============================================================================================
+
+    [SerializeField] int Woods_Default_Damage_Obsticle_Prob;
+    public static int WoodsDefaultDamageObsticleProb;
+    [SerializeField] int Woods_Rocky_Damage_Obsticle_Prob;
+    public static int WoodsRockyDamageObsticleProb;
+    [SerializeField] int Woods_Canapy_Damage_Obsticle_Prob;
+    public static int WoodsCanapyDamageObsticleProb;
+
+    //=============================================================================================
+
+    private bool loaded = false;
+
+    int lastLoadedIndex;
+    int trigerBiomeIndex;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        if (worldThemeName == "")
+        {
+            worldThemeName = PlayerPrefs.GetString(GameManager.PlayerPrefsNames.Selected_WorldTheme);
+            if (worldThemeName == "")
+            {
+                PlayerPrefs.SetString(GameManager.PlayerPrefsNames.Selected_WorldTheme, "Default");
+                worldThemeName = "Default";
+            }
+        }
+        else
+        {
+            PlayerPrefs.SetString(GameManager.PlayerPrefsNames.Selected_WorldTheme, worldThemeName);
+        }
+
+        loaded = false;
+
+        COIN_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(GAME_OBJECTS_FOLDER_DIRECTORY + "/" + COIN_OBJECT_NAME);
+        CRYSTAL_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(GAME_OBJECTS_FOLDER_DIRECTORY + "/" + CRYSTAL_OBJECT_NAME);
+        COINMAGNET_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(GAME_OBJECTS_FOLDER_DIRECTORY + "/" + COINMAGNET_OBJECT_NAME);
+        BIGSNAKE_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(GAME_OBJECTS_FOLDER_DIRECTORY + "/" + BIGSNAKE_OBJECT_NAME);
+        ROCKET_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(GAME_OBJECTS_FOLDER_DIRECTORY + "/" + ROCKET_OBJECT_NAME);
+
+
+        OBSTICAL_CLEAR_OBJECT_GAMEOBJECT = Resources.Load<GameObject>(WORLD_GENERATOR_FOLDERS_DIRECTORY + "/" + OBSTICAL_CLEAR_OBJECT_NAME);
+
+        PROGRESS_SIGN_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + PROGRESS_SIGN_NAME);
+
+        WOODS_DEFAULT_SCENERY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_SCENERY_NAME);
+        WOODS_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_TRANSSCENERY_ROCKY_NAME);
+        WOODS_DEFAULT_TRANSSCENERY_RIVERD_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_TRANSSCENERY_RIVERD_NAME);
+        WOODS_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_TRANSSCENERY_CANAPY_NAME);
+        WOODS_DEFAULT_SCENERY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_SCENERY_NAME);
+        WOODS_DEFAULT_PLATFORM_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_PLATFORM_NAME);
+        WOODS_DEFAULT_TREE_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_TREE_NAME);
+        WOODS_DEFAULT_ROCK_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_ROCK_NAME);
+        WOODS_DEFAULT_DECORATION_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_DECORATION_NAME);
+        WOODS_DEFAULT_ENEMYPLANT_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_ENEMYPLANT_NAME);
+        WOODS_DEFAULT_DIRECTED_FIRE_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_DEFAULT_DIRECTED_FIRE_NAME);
+
+        WOODS_ROCKY_SCENERY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_SCENERY_NAME);
+        WOODS_ROCKY_TRANSSCENERY_DEFAULT_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_TRANSSCENERY_DEFAULT_NAME);
+        WOODS_ROCKY_TRANSSCENERY_CANAPY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_TRANSSCENERY_CANAPY_NAME);
+        WOODS_ROCKY_TRANSSCENERY_RIVERD_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_TRANSSCENERY_RIVERD_NAME);
+        WOODS_ROCKY_PLATFORM_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_PLATFORM_NAME);
+        WOODS_ROCKY_TREE_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_TREE_NAME);
+        WOODS_ROCKY_ROCK_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_ROCK_NAME);
+        WOODS_ROCKY_ROCK_PATH_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_ROCKY_ROCK_PATH_NAME);
+
+        WOODS_CANAPY_SCENERY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_SCENERY_NAME);
+        WOODS_CANAPY_TRANSSCENERY_DEFAULT_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_TRANSSCENERY_DEFAULT_NAME);
+        WOODS_CANAPY_TRANSSCENERY_ROCKY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_TRANSSCENERY_ROCKY_NAME);
+        WOODS_CANAPY_TRANSSCENERY_RIVERD_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_TRANSSCENERY_RIVERD_NAME);
+        WOODS_CANAPY_PLATFORM_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_PLATFORM_NAME);
+        WOODS_CANAPY_TREE_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_TREE_NAME);
+        WOODS_CANAPY_SPIDER_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + WOODS_CANAPY_SPIDER_NAME);
+
+        RIVER_DEFAULT_SCENERY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_SCENERY_NAME);
+        RIVER_DEFAULT_TRANSSCENERY_DEFAULT_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_TRANSSCENERY_DEFAULT_NAME);
+        RIVER_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_TRANSSCENERY_ROCKY_NAME);
+        RIVER_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_TRANSSCENERY_CANAPY_NAME);
+        RIVER_DEFAULT_PLATFORM_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_PLATFORM_NAME);
+        RIVER_DEFAULT_CROC_PLATFORM_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_CROC_PLATFORM_NAME);
+        RIVER_DEFAULT_ALIGATOR_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_ALIGATOR_NAME);
+        RIVER_DEFAULT_LILYPAD_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_LILYPAD_NAME);
+        RIVER_DEFAULT_VEGITATION_GAMEOBJECT = Resources.Load<GameObject>(WORLD_KIT_FOLDERS_DIRECTORY + "/" + worldThemeName + "_World/" + RIVER_DEFAULT_VEGITATION_NAME);
+
+        //=============================================================================================
+
+        BiomeLengthMult = Biome_Length_Mult;
+        MinBaseDistance = Min_Base_Distance;
+        BiomeContainer = Biome_Container;
+        DecorationDensity = Tree_Density;
+
+        WoodsDefaultDamageObsticleProb = Woods_Default_Damage_Obsticle_Prob;
+        WoodsRockyDamageObsticleProb = Woods_Rocky_Damage_Obsticle_Prob;
+        WoodsCanapyDamageObsticleProb = Woods_Canapy_Damage_Obsticle_Prob;
+
+        currentSignPositionIndex = 0;
+        nextSignPosition = signPositions[currentSignPositionIndex];
+
+        //=============================================================================================
+
+        Instantiate(WOODS_DEFAULT_SCENERY_GAMEOBJECT).transform.position = new Vector3(0, 0, -10);
+        Instantiate(WOODS_DEFAULT_SCENERY_GAMEOBJECT).transform.position = new Vector3(0, 0, -20);
+
+        First_Base.GetComponent<MeshFilter>().sharedMesh = WOODS_DEFAULT_PLATFORM_GAMEOBJECT.GetComponentInChildren<MeshFilter>().sharedMesh;
+        First_Base.GetComponent<MeshRenderer>().sharedMaterials = WOODS_DEFAULT_PLATFORM_GAMEOBJECT.GetComponentInChildren<MeshRenderer>().sharedMaterials;
+
+        loadedBiomes = new WorldBiome[biomeLoadNumber];
+
+        loadedBiomes[0] = new WorldBiome(WorldBiome.WOODS_DEFAULT,
+                (float)Mathf.Round((float)SmartRandomizer.randomizeValue(new valueProbabilityFunction(biomLengthProbability, 1, 4, 10))),
+                new BiomeBeforeFirst());
+
+        for (int i = 1; i < biomeLoadNumber - 1; i++)
+        {
+            loadedBiomes[i] = createANewRandomBiome(loadedBiomes[i - 1]);
+        } 
+
+        lastLoadedIndex = biomeLoadNumber - 2;
+        trigerBiomeIndex = biomeLoadNumber - 3;
+
+        loaded = true;
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        //if the snake entered the last loaded biome, create a new one
+        if (loaded && (loadedBiomes[trigerBiomeIndex].getContainer().transform.position.z < SceneManager_Game.snakeClass.getTailPosition().z))
+        {
+            SceneManager_Game.snakeClass.setBiome(loadedBiomes[trigerBiomeIndex].getType());
+            GenerateBiome();
+        }
+    }
+
+    private void GenerateBiome()
+    {
+        int newLoadedIndex = (lastLoadedIndex < loadedBiomes.Length - 1) ? lastLoadedIndex + 1 : 0;
+
+        loadedBiomes[newLoadedIndex] = createANewRandomBiome(loadedBiomes[lastLoadedIndex]);
+
+        lastLoadedIndex = newLoadedIndex;
+
+        trigerBiomeIndex = (lastLoadedIndex == 0) ? loadedBiomes.Length - 1 : lastLoadedIndex - 1;
+
+        int firstBiomeIndex = (newLoadedIndex < loadedBiomes.Length - 1) ? newLoadedIndex + 1 : 0;
+        if (loadedBiomes[firstBiomeIndex] != null)
+        {
+            loadedBiomes[firstBiomeIndex].deleteBiome();
+        }
+    }
+
+    private WorldBiome createANewRandomBiome(WorldBiome previousBiome)
+    {
+        string biomeType = WorldBiome.biomeTypeRand.randomizeValue();
+
+        return new WorldBiome(biomeType,
+                (float)Mathf.Round((float)SmartRandomizer.randomizeValue(new valueProbabilityFunction(biomLengthProbability, 1, 4, 10))),
+                previousBiome);
+    }
+
+    public static void reportSignPlaced()
+    {
+        Debug.Log(nextSignPosition);
+
+        currentSignPositionIndex += 1;
+
+        if(currentSignPositionIndex >= (signPositions.Length - 1))
+        {
+            nextSignPosition = 250 * (currentSignPositionIndex - signPositions.Length + 2);
+        }
+        else
+        {
+            nextSignPosition = signPositions[currentSignPositionIndex];
+        }
+    }
+
+    private float biomLengthProbability(float x)
+    {
+        return ((7 - x) * (x - 12));
+    }
+}
+
+class WorldBiome
+{
+    public const string WOODS_DEFAULT = "Woods_Default";
+    public const string WOODS_ROCKY = "Woods_Rocky";
+    public const string WOODS_CANAPY = "Woods_Canapy";
+    public const string RIVER_DEFAULT = "River_Default";
+
+    public static valueProbabilityPair<string>[] biomeTypeRandomizationList = new valueProbabilityPair<string>[]{
+        new valueProbabilityPair<string>(WOODS_DEFAULT, 1),
+        new valueProbabilityPair<string>(WOODS_ROCKY, 1),
+        new valueProbabilityPair<string>(WOODS_CANAPY, 1),
+        new valueProbabilityPair<string>(RIVER_DEFAULT, 1)
+        };
+    public static SmartRandomizer<string> biomeTypeRand = new SmartRandomizer<string>(biomeTypeRandomizationList);
+
+    string type;
+    float biomeLength;
+    float globalBiomeLength;
+
+    Vector3 position;
+
+    Vector3 prevLastBasePosition;
+    Vector3 lastBasePosition;
+
+    BaseTile prevLastBase;
+    BaseTile lastBase;
+
+    Transform biomeContainer;
+
+    WorldBiome prevBiome;
+
+    static SmartRandomizer baseRangeRandomizer = new SmartRandomizer(new valueProbabilityFunction(baseRangeProbability, 0.5f, WorldGenerator.MinBaseDistance, SceneManager_Game.SNAKE_RANGE / 3));
+
+    public WorldBiome(string type, float length, WorldBiome prevBiome)
+    {
+        this.type = type;
+        this.biomeLength = length;
+        this.globalBiomeLength = (WorldGenerator.BiomeLengthMult * this.biomeLength);
+        this.prevBiome = prevBiome;
+
+        this.prevLastBasePosition = prevBiome.getLastBasePositions();
+        this.position = new Vector3(0, 0, prevBiome.getPosition().z + prevBiome.getGlobalLength());
+        this.prevLastBase = prevBiome.getLastBase();
+
+        biomeContainer = Object.Instantiate(WorldGenerator.BiomeContainer).transform;
+        biomeContainer.position = this.position;
+        biomeContainer.name = this.type;
+        buildBiome();
+    }
+
+    protected WorldBiome()
+    {
+        this.type = WOODS_DEFAULT;
+        this.lastBasePosition = Vector3.zero;
+        this.position = Vector3.zero;
+        this.biomeLength = 0;
+        this.globalBiomeLength = 0;
+        this.lastBase = GameObject.Find("FirstBase").GetComponentInChildren<BaseTile>();
+    }
+
+    private void buildBiome()
+    {
+        switch (type)
+        {
+            case (WOODS_DEFAULT):
+                buildWoodsDefault();
+                break;
+
+            case (WOODS_ROCKY):
+                buildWoodsRocky();
+                break;
+
+            case (WOODS_CANAPY):
+                buildWoodsCanapy();
+                break;
+
+            case (RIVER_DEFAULT):
+                buildRiverDefault();
+                break;
+        }
+    }
+
+    public Vector3 getLastBasePositions()
+    {
+        return this.lastBasePosition;
+    }
+
+    public BaseTile getLastBase()
+    {
+        return this.lastBase;
+    }
+
+    public Vector3 getPosition()
+    {
+        return this.position;
+    }
+
+    public float getLength()
+    {
+        return this.biomeLength;
+    }
+
+    public float getGlobalLength()
+    {
+        return this.globalBiomeLength;
+    }
+
+    public Transform getContainer()
+    {
+        return this.biomeContainer;
+    }
+
+    public string getType()
+    {
+        return this.type;
+    }
+
+    public void deleteBiome()
+    {
+        Object.Destroy(this.biomeContainer.gameObject);
+    }
+
+    private void buildWoodsDefault()
+    {
+        switch (prevBiome.getType())
+        {
+            case (WOODS_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_DEFAULT_SCENERY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_ROCKY):
+                Object.Instantiate(WorldGenerator.WOODS_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_CANAPY):
+                Object.Instantiate(WorldGenerator.WOODS_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (RIVER_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_DEFAULT_TRANSSCENERY_RIVERD_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+        }
+
+        for (int i = 1; i < biomeLength; i++)
+        {
+            Object.Instantiate(WorldGenerator.WOODS_DEFAULT_SCENERY_GAMEOBJECT, biomeContainer)
+                .transform.localPosition = new Vector3(0, 0, i * WorldGenerator.BiomeLengthMult);
+        }
+
+        prevLastBasePosition.z -= prevBiome.getGlobalLength();
+
+        Vector3 lastPosition = prevLastBasePosition;
+        BaseTile lastBase = prevLastBase;
+
+        float distance;
+        float angle;
+        Vector3 platformLocation = Vector3.zero;
+
+        int basesLoaded = 0;
+
+        do
+        {
+            distance = (float)baseRangeRandomizer.randomizeValue();
+            float a = (-1 * lastPosition.x) / WorldGenerator.WORLD_WIDTH;
+            angle = (float)SmartRandomizer.randomizeValue(getAngleFunctionObject(a));
+
+            platformLocation = lastPosition + new Vector3(distance * Mathf.Sin(angle * Mathf.Deg2Rad), 0, distance * Mathf.Cos(angle * Mathf.Deg2Rad));
+
+            GameObject platfom = Object.Instantiate(WorldGenerator.WOODS_DEFAULT_PLATFORM_GAMEOBJECT, this.biomeContainer);
+            platfom.transform.localPosition = platformLocation;
+
+            basesLoaded += 1;
+
+            GameObject ObsticleClearer = Object.Instantiate(WorldGenerator.OBSTICAL_CLEAR_OBJECT_GAMEOBJECT, this.biomeContainer);
+
+            ObsticleClearer.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+            ObsticleClearer.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            ObsticleClearer.transform.localScale = new Vector3(1, 1, VectorHandeler.distance(platformLocation, lastPosition));
+
+            int randomizedNumber = Random.Range(0, WorldGenerator.WoodsDefaultDamageObsticleProb);
+
+            if (randomizedNumber == 0 & basesLoaded > 1)
+            {
+                GameObject bitingPlant = Object.Instantiate(WorldGenerator.WOODS_DEFAULT_ENEMYPLANT_GAMEOBJECT, this.biomeContainer);
+
+                bitingPlant.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+                bitingPlant.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            }
+            else
+            {
+                if (Random.Range(0, 5) == 0)
+                {
+                    Vector3[] positions = VectorHandeler.destribute(lastPosition, platformLocation, 7);
+
+                    for (int i = 1; i < 6; i++)
+                    {
+                        Object.Instantiate(WorldGenerator.COIN_OBJECT_GAMEOBJECT, biomeContainer).transform.localPosition = positions[i];
+                    }
+                }
+            }
+
+            int randomizedNumber2 = Random.Range(0, 200);
+
+            if(randomizedNumber2 == 0)
+            {
+                Object.Instantiate(WorldGenerator.COINMAGNET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if(randomizedNumber2 == 1)
+            {
+                Object.Instantiate(WorldGenerator.BIGSNAKE_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 2)
+            {
+                Object.Instantiate(WorldGenerator.ROCKET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+
+            if((platformLocation.z + this.position.z) / 3 >= WorldGenerator.nextSignPosition)
+            {
+                GameObject sign = Object.Instantiate(WorldGenerator.PROGRESS_SIGN_GAMEOBJECT, biomeContainer.transform);
+                sign.transform.localPosition = platformLocation + new Vector3(5, 0, 5);
+                sign.GetComponentInChildren<UnityEngine.UI.Text>().text = WorldGenerator.nextSignPosition + "m";
+                WorldGenerator.reportSignPlaced();
+            }
+
+            lastBase.setNext(platfom.GetComponentInChildren<BaseTile>());
+            lastBase = platfom.GetComponentInChildren<BaseTile>();
+
+            lastPosition = platformLocation;
+
+        } while (globalBiomeLength - lastPosition.z > 10);
+
+        this.lastBasePosition = platformLocation;
+        this.lastBase = lastBase;
+
+        //generate Decorations
+        for (float x = -WorldGenerator.SCENE_WITDH; x < WorldGenerator.SCENE_WITDH; x += WorldGenerator.DecorationDensity)
+        {
+            int row = 0;
+            for (float z = WorldGenerator.DecorationDensity; z < globalBiomeLength; z += WorldGenerator.DecorationDensity)
+            {
+                float deltaX = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+                if (row % 2 == 1) deltaX += (WorldGenerator.DecorationDensity / 2);
+                float deltaZ = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+
+                Vector3 obsticlePosition = new Vector3(x + deltaX, 0, z + deltaZ);
+
+                int randomizedNumber = Random.Range(0, 4);
+                if (randomizedNumber < 3)
+                {
+                    GameObject tree = Object.Instantiate(WorldGenerator.WOODS_DEFAULT_TREE_GAMEOBJECT, this.biomeContainer);
+                    tree.transform.localPosition = obsticlePosition;
+                }
+                else if (randomizedNumber < 3)
+                {
+                    GameObject decor = Object.Instantiate(WorldGenerator.WOODS_DEFAULT_DECORATION_GAMEOBJECT, this.biomeContainer);
+                    decor.transform.localPosition = obsticlePosition;
+                }
+                else if (randomizedNumber == 3)
+                {
+                    GameObject rock = Object.Instantiate(WorldGenerator.WOODS_DEFAULT_ROCK_GAMEOBJECT, this.biomeContainer);
+                    rock.transform.localPosition = obsticlePosition;
+                }
+
+                row += 1;
+            }
+        }
+    }
+
+    private void buildWoodsRocky()
+    {
+        switch (prevBiome.getType())
+        {
+            case (WOODS_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_ROCKY_TRANSSCENERY_DEFAULT_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_ROCKY):
+                Object.Instantiate(WorldGenerator.WOODS_ROCKY_SCENERY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_CANAPY):
+                Object.Instantiate(WorldGenerator.WOODS_ROCKY_TRANSSCENERY_CANAPY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (RIVER_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_ROCKY_TRANSSCENERY_RIVERD_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+        }
+
+        for (int i = 1; i < biomeLength; i++)
+        {
+            Object.Instantiate(WorldGenerator.WOODS_ROCKY_SCENERY_GAMEOBJECT, biomeContainer)
+                .transform.localPosition = new Vector3(0, 0, i * WorldGenerator.BiomeLengthMult);
+        }
+
+        prevLastBasePosition.z -= prevBiome.getGlobalLength();
+
+        Vector3 lastPosition = prevLastBasePosition;
+        BaseTile lastBase = prevLastBase;
+
+        float distance;
+        float angle;
+        Vector3 platformLocation = Vector3.zero;
+
+        int basesLoaded = 0;
+
+        do
+    {
+            distance = (float)baseRangeRandomizer.randomizeValue();
+            float a = (-1 * lastPosition.x) / WorldGenerator.WORLD_WIDTH;
+            angle = (float)SmartRandomizer.randomizeValue(getAngleFunctionObject(a));
+
+            platformLocation = lastPosition + new Vector3(distance * Mathf.Sin(angle * Mathf.Deg2Rad), 0, distance * Mathf.Cos(angle * Mathf.Deg2Rad));
+
+            GameObject platfom = Object.Instantiate(WorldGenerator.WOODS_ROCKY_PLATFORM_GAMEOBJECT, this.biomeContainer);
+            platfom.transform.localPosition = platformLocation;
+
+            basesLoaded += 1;
+
+            GameObject ObsticleClearer = Object.Instantiate(WorldGenerator.OBSTICAL_CLEAR_OBJECT_GAMEOBJECT, this.biomeContainer);
+
+            ObsticleClearer.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+            ObsticleClearer.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            ObsticleClearer.transform.localScale = new Vector3(1, 1, VectorHandeler.distance(platformLocation, lastPosition));
+
+
+            if (Random.Range(0, 5) == 0)
+            {
+                Vector3[] positions = VectorHandeler.destribute(lastPosition, platformLocation, 7);
+
+                for (int i = 1; i < 6; i++)
+                {
+                    Object.Instantiate(WorldGenerator.COIN_OBJECT_GAMEOBJECT, biomeContainer).transform.localPosition = positions[i];
+                }
+            }
+            else
+            {
+                if (platformLocation.z - lastPosition.z >= 5 && basesLoaded > 1)
+                {
+                    int randomizedNumber = Random.Range(0, WorldGenerator.WoodsRockyDamageObsticleProb);
+
+                    if (randomizedNumber == 0)
+                    {
+                        GameObject rockPath = Object.Instantiate(WorldGenerator.WOODS_ROCKY_ROCK_PATH_GAMEOBJECT, this.biomeContainer);
+
+                        rockPath.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+                    }
+                }
+            }
+
+            int randomizedNumber2 = Random.Range(0, 200);
+
+            if (randomizedNumber2 == 0)
+            {
+                Object.Instantiate(WorldGenerator.COINMAGNET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 1)
+            {
+                Object.Instantiate(WorldGenerator.BIGSNAKE_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 2)
+            {
+                Object.Instantiate(WorldGenerator.ROCKET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+
+            if ((platformLocation.z + this.position.z) / 3 >= WorldGenerator.nextSignPosition)
+            {
+                GameObject sign = Object.Instantiate(WorldGenerator.PROGRESS_SIGN_GAMEOBJECT, biomeContainer.transform);
+                sign.transform.localPosition = platformLocation + new Vector3(5, 0, 5);
+                sign.GetComponentInChildren<UnityEngine.UI.Text>().text = WorldGenerator.nextSignPosition + "m";
+                WorldGenerator.reportSignPlaced();
+            }
+
+            lastBase.setNext(platfom.GetComponentInChildren<BaseTile>());
+            lastBase = platfom.GetComponentInChildren<BaseTile>();
+
+            lastPosition = platformLocation;
+
+        } while (globalBiomeLength - lastPosition.z > 10);
+
+        this.lastBasePosition = lastPosition;
+        this.lastBase = lastBase;
+
+        //generate Obsticless
+        for (float x = -WorldGenerator.SCENE_WITDH; x < WorldGenerator.SCENE_WITDH; x += WorldGenerator.DecorationDensity)
+        {
+            int row = 0;
+            for (float z = WorldGenerator.DecorationDensity; z < globalBiomeLength; z += WorldGenerator.DecorationDensity)
+            {
+                float deltaX = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+                if (row % 2 == 1) deltaX += (WorldGenerator.DecorationDensity / 2);
+                float deltaZ = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+
+                Vector3 obsticlePosition = new Vector3(x + deltaX, 0, z + deltaZ);
+
+                int randomizedNumber = Random.Range(0, 2);
+                if (randomizedNumber == 0)
+                {
+                    GameObject rock = Object.Instantiate(WorldGenerator.WOODS_ROCKY_ROCK_GAMEOBJECT, this.biomeContainer);
+                    rock.transform.localPosition = obsticlePosition;
+                }
+                else if (randomizedNumber == 1)
+                {
+                    GameObject tree = Object.Instantiate(WorldGenerator.WOODS_ROCKY_TREE_GAMEOBJECT, this.biomeContainer);
+                    tree.transform.localPosition = obsticlePosition;
+                }
+
+                row += 1;
+            }
+        }
+    }
+
+    private void buildWoodsCanapy()
+    {
+        switch (prevBiome.getType())
+        {
+            case (WOODS_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_CANAPY_TRANSSCENERY_DEFAULT_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_ROCKY):
+                Object.Instantiate(WorldGenerator.WOODS_CANAPY_TRANSSCENERY_ROCKY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_CANAPY):
+                Object.Instantiate(WorldGenerator.WOODS_CANAPY_SCENERY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (RIVER_DEFAULT):
+                Object.Instantiate(WorldGenerator.WOODS_CANAPY_TRANSSCENERY_RIVERD_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+        }
+
+        for (int i = 1; i < biomeLength; i++)
+        {
+            Object.Instantiate(WorldGenerator.WOODS_CANAPY_SCENERY_GAMEOBJECT, biomeContainer)
+                .transform.localPosition = new Vector3(0, 0, i * WorldGenerator.BiomeLengthMult);
+        }
+
+        prevLastBasePosition.z -= prevBiome.getGlobalLength();
+
+        Vector3 lastPosition = prevLastBasePosition;
+        BaseTile lastBase = prevLastBase;
+
+        float distance;
+        float angle;
+        Vector3 platformLocation = Vector3.zero;
+
+        float side = (lastPosition.x > 0 ? 1 : -1);
+
+        int basesLoaded = 0;
+
+        do
+        {
+            distance = (float)baseRangeRandomizer.randomizeValue();
+            float a = side;
+            angle = (float)SmartRandomizer.randomizeValue(getAngleFunctionObject(a));
+
+            platformLocation = lastPosition + new Vector3(distance * Mathf.Sin(angle * Mathf.Deg2Rad), 0, distance * Mathf.Cos(angle * Mathf.Deg2Rad));
+
+            GameObject platfom = Object.Instantiate(WorldGenerator.WOODS_CANAPY_PLATFORM_GAMEOBJECT, this.biomeContainer);
+            platfom.transform.localPosition = platformLocation;
+            platfom.transform.localScale = new Vector3(side, 1, 1);
+
+            basesLoaded += 1;
+
+            GameObject ObsticleClearer = Object.Instantiate(WorldGenerator.OBSTICAL_CLEAR_OBJECT_GAMEOBJECT, this.biomeContainer);
+
+            ObsticleClearer.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+            ObsticleClearer.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            ObsticleClearer.transform.localScale = new Vector3(1, 1, VectorHandeler.distance(platformLocation, lastPosition));
+
+            int randomizedNumber = Random.Range(0, WorldGenerator.WoodsCanapyDamageObsticleProb);
+
+            if (randomizedNumber == 0 && basesLoaded > 1)
+            {
+                GameObject spider = Object.Instantiate(WorldGenerator.WOODS_CANAPY_SPIDER_GAMEOBJECT, this.biomeContainer);
+
+                spider.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+                spider.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            }
+            else
+            {
+                if (Random.Range(0, 3) == 0)
+                {
+                    Vector3[] positions = VectorHandeler.destribute(lastPosition, platformLocation, 7);
+
+                    for (int i = 1; i < 6; i++)
+                    {
+                        Object.Instantiate(WorldGenerator.COIN_OBJECT_GAMEOBJECT, biomeContainer).transform.localPosition = positions[i];
+                    }
+                }
+            }
+
+            int randomizedNumber2 = Random.Range(0, 200);
+
+            if (randomizedNumber2 == 0)
+            {
+                Object.Instantiate(WorldGenerator.COINMAGNET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 1)
+            {
+                Object.Instantiate(WorldGenerator.BIGSNAKE_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 2)
+            {
+                Object.Instantiate(WorldGenerator.ROCKET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+
+            if ((platformLocation.z + this.position.z) / 3 >= WorldGenerator.nextSignPosition)
+            {
+                GameObject sign = Object.Instantiate(WorldGenerator.PROGRESS_SIGN_GAMEOBJECT, biomeContainer.transform);
+                sign.transform.localPosition = platformLocation + new Vector3(0, 0, 5);
+                sign.GetComponentInChildren<UnityEngine.UI.Text>().text = WorldGenerator.nextSignPosition + "m";
+                WorldGenerator.reportSignPlaced();
+            }
+
+            lastBase.setNext(platfom.GetComponentInChildren<BaseTile>());
+            lastBase = platfom.GetComponentInChildren<BaseTile>();
+
+            lastPosition = platformLocation;
+
+            side *= -1;
+
+        } while (globalBiomeLength - lastPosition.z > 10);
+
+        this.lastBasePosition = lastPosition;
+        this.lastBase = lastBase;
+
+        float canapyObsticleDensity = WorldGenerator.DecorationDensity * 3;
+
+        //generate Obsticless
+        for (float x = -WorldGenerator.SCENE_WITDH; x < WorldGenerator.SCENE_WITDH; x += canapyObsticleDensity)
+        {
+            int row = 0;
+            for (float z = canapyObsticleDensity; z < globalBiomeLength; z += canapyObsticleDensity)
+            {
+                float deltaX = Random.Range(0, WorldGenerator.DecorationScatter) * canapyObsticleDensity;
+                if (row % 2 == 1) deltaX += (canapyObsticleDensity / 2);
+                float deltaZ = Random.Range(0, WorldGenerator.DecorationScatter) * canapyObsticleDensity;
+
+                Vector3 obsticlePosition = new Vector3(x + deltaX, 0, z + deltaZ);
+
+
+                GameObject tree = Object.Instantiate(WorldGenerator.WOODS_CANAPY_TREE_GAMEOBJECT, this.biomeContainer);
+                tree.transform.localPosition = obsticlePosition;
+
+                row += 1;
+            }
+        }
+    }
+
+    private void buildRiverDefault()
+    {
+        switch (prevBiome.getType())
+        {
+            case (WOODS_DEFAULT):
+                Object.Instantiate(WorldGenerator.RIVER_DEFAULT_TRANSSCENERY_DEFAULT_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_ROCKY):
+                Object.Instantiate(WorldGenerator.RIVER_DEFAULT_TRANSSCENERY_ROCKY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (WOODS_CANAPY):
+                Object.Instantiate(WorldGenerator.RIVER_DEFAULT_TRANSSCENERY_CANAPY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+
+            case (RIVER_DEFAULT):
+                Object.Instantiate(WorldGenerator.RIVER_DEFAULT_SCENERY_GAMEOBJECT, biomeContainer)
+                    .transform.localPosition = new Vector3(0, 0, 0);
+                break;
+        }
+
+        for (int i = 1; i < biomeLength; i++)
+        {
+            Object.Instantiate(WorldGenerator.RIVER_DEFAULT_SCENERY_GAMEOBJECT, biomeContainer)
+                .transform.localPosition = new Vector3(0, 0, i * WorldGenerator.BiomeLengthMult);
+        }
+
+        prevLastBasePosition.z -= prevBiome.getGlobalLength();
+
+        Vector3 lastPosition = prevLastBasePosition;
+        BaseTile lastBase = prevLastBase;
+
+        float distance;
+        float angle;
+        Vector3 platformLocation = Vector3.zero;
+
+        int basesLoaded = 0;
+
+        do
+        {
+            distance = (float)baseRangeRandomizer.randomizeValue();
+            float a = (-1 * lastPosition.x) / WorldGenerator.WORLD_WIDTH;
+            angle = (float)SmartRandomizer.randomizeValue(getAngleFunctionObject(a));
+
+            platformLocation = lastPosition + new Vector3(distance * Mathf.Sin(angle * Mathf.Deg2Rad), 0, distance * Mathf.Cos(angle * Mathf.Deg2Rad));
+
+            GameObject platfom = Object.Instantiate(WorldGenerator.RIVER_DEFAULT_PLATFORM_GAMEOBJECT, this.biomeContainer);
+            platfom.transform.localPosition = platformLocation;
+
+            basesLoaded += 1;
+
+            GameObject ObsticleClearer = Object.Instantiate(WorldGenerator.OBSTICAL_CLEAR_OBJECT_GAMEOBJECT, this.biomeContainer);
+
+            ObsticleClearer.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+            ObsticleClearer.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            ObsticleClearer.transform.localScale = new Vector3(1, 1, VectorHandeler.distance(platformLocation, lastPosition));
+
+            int randomizedNumber = Random.Range(0, WorldGenerator.WoodsDefaultDamageObsticleProb); 
+
+            if (randomizedNumber == 0 & basesLoaded > 1)
+            {
+                GameObject alligator = Object.Instantiate(WorldGenerator.RIVER_DEFAULT_ALIGATOR_GAMEOBJECT, this.biomeContainer);
+
+                alligator.transform.localPosition = VectorHandeler.middle(platformLocation, lastPosition);
+                alligator.transform.localRotation = VectorHandeler.lookAt(lastPosition, platformLocation);
+            }
+            else
+            {
+                if (Random.Range(0, 5) == 0)
+                {
+                    Vector3[] positions = VectorHandeler.destribute(lastPosition, platformLocation, 7);
+
+                    for (int i = 1; i < 6; i++)
+                    {
+                        Object.Instantiate(WorldGenerator.COIN_OBJECT_GAMEOBJECT, biomeContainer).transform.localPosition = positions[i];
+                    }
+                }
+            }
+
+            int randomizedNumber2 = Random.Range(0, 200);
+
+            if (randomizedNumber2 == 0)
+            {
+                Object.Instantiate(WorldGenerator.COINMAGNET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 1)
+            {
+                Object.Instantiate(WorldGenerator.BIGSNAKE_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+            else if (randomizedNumber2 == 2)
+            {
+                Object.Instantiate(WorldGenerator.ROCKET_OBJECT_GAMEOBJECT, biomeContainer.transform).transform.localPosition = platformLocation;
+            }
+
+            if ((platformLocation.z + this.position.z) / 3 >= WorldGenerator.nextSignPosition)
+            {
+                GameObject sign = Object.Instantiate(WorldGenerator.PROGRESS_SIGN_GAMEOBJECT, biomeContainer.transform);
+                sign.transform.localPosition = platformLocation + new Vector3(5, 0, 5);
+                sign.GetComponentInChildren<UnityEngine.UI.Text>().text = WorldGenerator.nextSignPosition + "m";
+                WorldGenerator.reportSignPlaced();
+            }
+
+            lastBase.setNext(platfom.GetComponentInChildren<BaseTile>());
+            lastBase = platfom.GetComponentInChildren<BaseTile>();
+
+            lastPosition = platformLocation;
+
+        } while (globalBiomeLength - lastPosition.z > 10);
+
+        this.lastBasePosition = platformLocation;
+        this.lastBase = lastBase;
+
+        //generate Decorations
+        for (float x = -WorldGenerator.SCENE_WITDH; x < WorldGenerator.SCENE_WITDH; x += WorldGenerator.DecorationDensity * 2)
+        {
+            int row = 0;
+            for (float z = WorldGenerator.DecorationDensity * 2; z < globalBiomeLength; z += WorldGenerator.DecorationDensity * 2)
+            {
+                float deltaX = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+                if (row % 2 == 1) deltaX += (WorldGenerator.DecorationDensity / 2);
+                float deltaZ = Random.Range(0, WorldGenerator.DecorationScatter) * WorldGenerator.DecorationDensity;
+
+                Vector3 obsticlePosition = new Vector3(x + deltaX, 0, z + deltaZ);
+
+                int randomizedNumber = Random.Range(0, 3);
+                if (randomizedNumber == 0)
+                {
+                    GameObject decor = Object.Instantiate(WorldGenerator.RIVER_DEFAULT_VEGITATION_GAMEOBJECT, this.biomeContainer);
+                    decor.transform.localPosition = obsticlePosition;
+                }
+                else
+                {
+                    GameObject lilypad = Object.Instantiate(WorldGenerator.RIVER_DEFAULT_LILYPAD_GAMEOBJECT, this.biomeContainer);
+                    lilypad.transform.localPosition = obsticlePosition;
+                }
+
+                row += 1;
+            }
+        }
+    }
+
+    //-----------
+
+    private static float baseRangeProbability(float x)
+    {
+        /**
+         * -(10 - x)(x - R)
+         * Where R is the maximum range and 10 is the minimum range
+        **/
+        return ((10 - x) * (x - (SceneManager_Game.SNAKE_RANGE / 3)));
+    }
+
+    private static float baseAngleProbability(float x, float a)
+    {
+        if (a > 0)
+        {
+            return (float)(((-1 * Mathf.Abs(x - (22.5f * a))) / ((1 - (0.5f * a)) * 90)) + 0.5);
+        }
+        else
+        {
+            return (float)(((-1 * Mathf.Abs(x - (22.5f * a))) / ((1 + (0.5f * a)) * 90)) + 0.5);
+        }
+    }
+
+    private valueProbabilityFunction getAngleFunctionObject(float a)
+    {
+        return new valueProbabilityFunction(
+            (float x) =>
+            {
+                return baseAngleProbability(x, a);
+            },
+            0.5f,
+            (a > 0) ? (a - 1) * 45 : -45,
+            (a > 0) ? 45 : (a + 1) * 45);
+    }
+
+}
+class BiomeBeforeFirst : WorldBiome
+{
+    public BiomeBeforeFirst() : base()
+    {
+        ;
+    }
+}
