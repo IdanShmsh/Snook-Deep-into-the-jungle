@@ -1,0 +1,407 @@
+As I now have a working mechanisem to make a model act like a real stretchy snake, I now need to have controll over it. 
+I want to be able to stretch it and when I release to sling it, while also making sure that when it's head hits a platform 
+it sticks to it.
+
+First I needed to create an extention for the class Joint. This extention is called HeadTail, this class will represent the
+joints which are the head joint or the tail joint. What we include in this extention is the ability for this joint to be
+manually moved or 'Thrusted' to a location. (Thrusting is the action of the joint to move in a constant speed towards a certain
+point.) I don't think further explanation is needed.
+
+class headTail : joint
+{
+    bool isHead;
+    joint tail;
+    bool thrusting;
+    float thrust;
+    Vector3 toThrust;
+    bool thrusted;
+
+    bool manualAdjusting = false;
+    bool manualTarget = false;
+
+    bool newHead = false;
+
+    public headTail(float mass, Vector3 startPos, float resistance, float thrust, float criticalVelocity) : base(mass, startPos, resistance, criticalVelocity)
+    {
+        this.mass = mass;
+        this.position = startPos;
+        this.resistance = resistance;
+        this.thrust = thrust;
+        this.thrusted = false; 
+        this.manualAdjusting = false;
+        this.newHead = false;
+    }
+
+    float prevDeltaD = 0;
+
+    public new void updateState(float deltaTime)
+    {
+        if (!isHead)
+        {
+            this.sigmaF = Vector3.zero;
+            return; //physics are not applied on the tail
+        }
+
+        if (deltaTime > 0.02f) deltaTime = 0.02f;
+
+        if (manualAdjusting)
+        {
+            manualAdjusting = false;
+            return;
+        }
+        if (thrusting)
+        {
+            position += velocity * deltaTime;
+            velocity = VectorHandeler.getDirectionVector(position, toThrust) * thrust;
+
+            if (toThrust.z <= position.z)
+            {
+                setPosition(toThrust);
+                velocity = Vector3.zero;
+                this.thrusted = true;
+                this.thrusting = false;
+            }
+        }
+        else
+        {
+            if (newHead)
+            {
+                sigmaF = Vector3.zero;
+                newHead = false;
+                return;
+            }
+            position += velocity * deltaTime;
+            velocity += (sigmaF / mass) * deltaTime;
+            velocity -= ((velocity * resistance) / mass) * deltaTime;
+        }
+
+        this.sigmaF = Vector3.zero;
+    }
+
+    public void thrustTo(Vector3 toThrust)
+    {
+        if (isHead)
+        {
+            manualAdjusting = false;
+            this.thrusting = true;
+            this.thrusted = false;
+            this.toThrust = toThrust;
+        }
+    }
+
+    public void thrustTo(Vector3 toThrust, float thrust)
+    {
+        if (isHead)
+        {
+            manualAdjusting = false;
+            this.thrusting = true;
+            this.thrusted = false;
+            this.toThrust = toThrust;
+            this.toThrust = toThrust;
+            this.thrust = thrust;
+        }
+    }
+
+    public void stopThrust()
+    {
+        if (isHead)
+        {
+            this.thrusting = false;
+            this.thrusted = false;
+            this.toThrust = Vector3.zero;
+            velocity = Vector3.zero;
+        }
+    }
+
+    public void setTail(joint tail)
+    {
+        this.tail = tail;
+    }
+
+    public void setHead(bool head)
+    {
+        this.isHead = head;
+        if (!head)
+        {
+            velocity = Vector3.zero;
+            this.thrusting = false;
+            this.manualAdjusting = false;
+        }
+        else
+        {
+            newHead = true;
+        }
+    }
+
+    public bool reachedThrustPoint()
+    {
+        return this.thrusted;
+    }
+
+    public void manualMoveTo(Vector3 traget, float pull, float deltaTime)
+    {
+        if (thrusting) return;
+        manualAdjusting = true;
+        velocity += (VectorHandeler.getDirectionVector(position, traget) * pull) * deltaTime;
+        velocity -= ((velocity * resistance) / mass) * deltaTime;
+        position += velocity * deltaTime;
+    }
+
+    public void dumpVlocity()
+    {
+        this.velocity = Vector3.zero;
+
+        this.thrusting = false;
+        this.toThrust = Vector3.zero;
+    }
+}
+
+Now, to actually control the snake.
+First, when a touch on the screen is made, I take the position when it begun and cache it. Then, each frame I mesure the place the finger
+is at currently, I compare it to the cached initial position and I produce a direction vector and a number which is the distance between
+the two points but compared to the screen size (to acount for different screen resolutions).
+I take this information and produce another vector out of it - the vector in the game's world-space that tells the head where to move to create
+the stretching effect. In addition I calculate another vector, this is the point the head will be 'Thrusted' to upon release. I also use the
+'distribute' method I created in the VectorHandler class to calculate 5 points between the tail and this point to make the aiming dots.
+Another thing that I do is limit the head from going behind the tail (z component of the head must be lower than the tail's z component),
+this is to prevent the player from slinging the snake back.
+You can see that now when I move my finger in a certain angle on the screen the snake will be aiming at this angle, and the more I move the
+finger the further it aims.
+
+private void touchAnalasis()
+{
+    //check if theres a touch on screen
+    if ((Input.touchCount > 0 || Input.GetMouseButtonDown(0)) && !rocket && reviveTime == -1)
+    {
+        //if the snake is not slinging...
+        if (!isSlinging)
+        {
+            //assign a temporary variable to the first Touch on screen
+            Touch touch = Input.GetTouch(0);
+
+            //if the initial touch position has not been set - set it
+            if (!touchPosSet)
+            {
+                firstTouchPos = touch.position;
+                touchPosSet = true;
+
+                for (int i = 0; i < aimingBalls.Length; i++)
+                {
+                    aimingBalls[i].transform.position = tail.getPosition();
+                }
+            }
+            else//if it did - manipulate snake based on it
+            {
+                //delta norm is the delta between the initial touch position to the current touch positon normalized. 
+                Vector2 deltaNorm = (touch.position - firstTouchPos).normalized;
+
+                if (deltaNorm.y > 0)
+                {
+                    deltaNorm.y = 0;
+                }
+
+                //assgin the raw magnitude to be the amount the finger moved on screen in respect the the initial touch position
+                //in relation to the screen size,
+                //this created Vector2's magnitude is multiplied by the moveIndex variable that determains how much the snake's head will move
+                //in relation to the amount the finger moved on screen.
+                float magnitude = (new Vector2((touch.position - firstTouchPos).x / Screen.width, (touch.position - firstTouchPos).y / Screen.height)).magnitude * moveIndex;
+
+                float limitedMagnitude = rangeLimiter(magnitude);
+
+                //assign the toMove varialbe to the right direction (that we get from deltaNorm) and to the
+                //right magnitude (the magnitude variable limited by the range limiter)
+                toMove = deltaNorm * limitedMagnitude;
+
+                //set the toPoint variable to the tail position plus the toMove that represents the delta.
+                toPoint = new Vector3(tail.getPosition().x - toMove.x, 0, tail.getPosition().z - toMove.y);
+
+                Vector3[] aimingBallPoints = VectorHandeler.destribute(tail.getPosition(), toPoint, aimingBalls.Length + 1);
+
+                for (float i = 0; i < aimingBalls.Length; i++)
+                {
+                    Vector3 reachPos = aimingBallPoints[(int)i + 1];
+                    aimingBalls[(int)i].transform.position = TransitionManager.ReachVector3(aimingBalls[(int)i].transform.position, reachPos, (i + 1) * 3f);
+                    aimingBalls[(int)i].gameObject.SetActive(true);
+                }
+
+                //to make the snake's head movement smooth and right to the physics simulator we are adding force in the
+                //direction of its movement instead of "teleporting" it immediatly to the right place.
+                //The force's "size" is determained by the distamce to the point the head should move to.
+                ((headTail)head).manualMoveTo(tail.getPosition() + (new Vector3(toMove.x, 0, toMove.y) * 0.6f), fingerAttraction, Time.deltaTime);
+
+                if (highlightedBaseTile) highlightedBaseTile.setWhiteness(0);
+                highlightedBaseTile = null;
+                //check if the player is aiming directly at a basetile, if so, highlight the basetile by setting its "whiteness" to .5f
+                foreach (Collider c in Physics.OverlapSphere(toPoint, .5f))
+                {
+                    if (c.tag == GameManager.ObjectTags.base_tile && c != currentBase)
+                    {
+                        try
+                        {
+                            highlightedBaseTile = c.GetComponent<BaseTile>();
+                            highlightedBaseTile.setWhiteness(.25f);
+                        }
+                        catch (System.Exception e)
+                        {
+                            ;
+                        }
+                    }
+                }
+            }
+
+            //if the touch we are currently following has ended - release the snake,
+            //let it sling (let it know that it slings), and listen for it's peak
+            if (touch.phase == TouchPhase.Ended)
+            {
+                ((headTail)head).thrustTo(toPoint, (bigSnake) ? thrust * 2f : thrust);
+                Vector2 firstTouchPos = Vector2.zero;
+                isSlinging = true;
+                touchPosSet = false;
+                toMove = Vector2.zero;
+                toPoint = Vector2.zero;
+                if (Random.Range(0f, 1f) <= (1 - (1 / getDificultyIndex()))) SceneManager_Game.mouseClass.makeJump();
+            }
+        }
+        else
+        {
+            touchPosSet = false;
+            Vector2 firstTouchPos = Vector2.zero;
+        }
+    }
+    else
+    {
+        for (int i = 0; i < aimingBalls.Length; i++)
+        {
+            aimingBalls[i].transform.position = tail.getPosition();
+            aimingBalls[i].gameObject.SetActive(false);
+        }
+
+        Vector2 firstTouchPos = Vector2.zero;
+        touchPosSet = false;
+
+        toMove = Vector2.zero;
+        toPoint = Vector2.zero;
+    }
+}
+
+Now, when we release the touch, the snake will be considered 'slinging' thats the time when the head is 'thrusting' towards the point
+the player aimed at. In the frame the head reaches this point and finishes the thrust, it signals it by making a flag called 'thrusted'
+true. When the snake is slinging I make a condition that waits for this flag to be true. When it is true, I create a virtual sphere 
+colider around the head, and check if it colides with a colider tagged 'baseTile', which is the tag of all platforms the snake can
+stick to. If the head does touch a platform at the peak of the sling, make it stick to it. How? I switch the head and the tail.
+
+The two methods that do this: 
+
+private void baseMovementHandeler()
+{
+    //if the snake is slinging - look of the head to reach the thrust point - if reached and alive do the following:
+    if (isSlinging && ((headTail)head).reachedThrustPoint() && alive)
+    {
+        isSlinging = false; //the snake is not slinging anymore (after reaching the thrust point)
+
+        //get the colider of the base the head is touching
+        Collider baseHeadTouching = getBaseHeadTouching();
+        //identify that this base is no the base the snake currently is on
+        if (baseHeadTouching != currentBase && baseHeadTouching != prevBase && baseHeadTouching != null && baseHeadTouching.transform.position.z > currentBase.transform.position.z)
+        {
+            //set the anchor point to the location of the head (which is on the base)
+            anchorPoint = head.getPosition();
+
+            //switch between the head and the tail
+            switchTailHead();
+
+            //assign the previose and current bases
+            prevBase = currentBase;
+            currentBase = baseHeadTouching;
+
+            //if the time the snake was on the previose base is less than 1.5 seconds
+            if (timeOnSameBase <= 1.5f)
+            {
+                combo++; //the combo goes up by 1
+                if (combo >= 2) //if the combo is 2 or more - show the combo element and create the effect that it has
+                {
+                    TransitionManager.scale(Transition.DECELORATING, comboElement, Vector3.one * 1.5f, Vector3.one, .5f, null);
+                    if (combo > PlayerPrefs.GetInt(GameManager.PlayerPrefsNames.Best_Combo)) PlayerPrefs.SetInt(GameManager.PlayerPrefsNames.Best_Combo, combo);
+                    //platformSoundSource.clip = platfrom3;
+                    //platformSoundSource.Play();
+                }
+                else
+                {
+                    //platformSoundSource.clip = platfrom2;
+                    //platformSoundSource.Play();
+                }
+            }
+            else //if the time the snake was on the previose base is more than 1.5 seconds set combo back to 0
+            {
+                xp += 2 * combo; //add to the xp (based on how big the combo was)
+                combo = 0;
+                //platformSoundSource.clip = platfrom1;
+                //platformSoundSource.Play();
+            }
+
+            //create one sound out of the three base hitting sounds
+            int number = Random.Range(0, 3);
+
+            platformSoundSource.clip = (coinMaster) ? platformCoinMaster : (number == 0) ? platform1 : (number == 1) ? platform3 : platform3;
+            platformSoundSource.Play();
+
+            //set the time on the base back to 0
+            timeOnSameBase = 0;
+
+            //add 6 to the venom
+            venom += 6;
+
+            //notify the base script of the current base that the snake is on it
+            currentBase.GetComponent<BaseTile>().snakeOnTile();
+
+            //make the base hit effect
+            makeBaseHitEffect();
+        }
+    }
+
+    //make the dissapearing effect of the combo text
+    if (combo >= 2 && alive && !PauseScreen.paused)
+    {
+        comboElement.SetActive(true);
+        comboElement.GetComponentInChildren<Image>().color = new Color(1, 1, 1, 1 - (0.44f * timeOnSameBase * timeOnSameBase));
+        Text comboText = comboElement.GetComponentInChildren<Text>();
+        comboText.color = new Color(comboText.color.r, comboText.color.g, comboText.color.b, 1 - (0.44f * (timeOnSameBase * timeOnSameBase)));
+        comboText.text = combo + "";
+    }
+    else
+    {
+        comboElement.GetComponentInChildren<Image>().color = new Color(1, 1, 1, 0);
+        Text comboText = comboElement.GetComponentInChildren<Text>();
+        comboText.color = new Color(comboText.color.r, comboText.color.g, comboText.color.b, 0);
+    }
+
+    //add to the time on base
+    timeOnSameBase += Time.deltaTime;
+}
+
+private void switchTailHead()
+{
+    //switch the varialbe pointers
+    joint temp = head;
+    head = tail;
+    tail = temp;
+
+    GameObject temp2 = headObj;
+    headObj = tailObj;
+    tailObj = temp2;
+
+    //notify the head and tail about their roll now
+    ((headTail)tail).setHead(false);
+    ((headTail)head).setHead(true);
+
+    //dump the velocity of the joints
+    for(int i = 0; i < length - 1; i++)
+    {
+        joints[i].dumpVelocity();
+    }
+
+    //clear the trail of the head trail 
+    headCont.GetComponentInChildren<TrailRenderer>().Clear();
+
+    eyes.transition(); //make the transition effect of the eyes
+}
